@@ -1,0 +1,1473 @@
+### Chalifour - 16S rRNA Analysis - Museum Biogeography Snail 2022 dataset - February 2 2022 ###
+### Prepped with Illumina 515fBC/806rB Primers ###
+### 2 Feb 2022###
+
+### SET UP ####
+# Import necessary libraries
+
+# install.packages("ggplot2")
+# install.packages("vegan")
+# install.packages("mctoolsr")
+# install.packages("dplyr")
+# install.packages("tibble")
+# install.packages("GGally")
+# install.packages("ecodist")
+
+# install.packages("devtools")
+# devtools::install_github("leffj/mctoolsr")
+
+library(ggplot2)
+library(vegan)
+library(mctoolsr)
+library(dplyr)
+library(tibble)
+library(GGally)
+library(ecodist)
+library(devtools)
+library(car)
+library(PMCMRplus)
+
+### READ IN FOR MCTOOLSR ####
+
+# Reading in zOTU table and mollusk metadata file into R (as .txt)
+# Preprocessed to remove taxa <5 reads total
+# Combining two files using load_taxa_table
+# Note this is a different zOTU table (formatting) than used in counts
+
+setwd("/Users/bridgetchalifour/Desktop/Oreohelix/Biogeography/")
+
+tax_table_fp = ('seqtab_wTax_mctoolsr_new.txt')
+map_fp = ('MappingFileBridget_SnailBiogeo_16S_Dec2021.txt')
+data_full = load_taxa_table(tax_table_fp,map_fp)
+
+# Checking Read Counts Per Sample to Determine Level to Rarefy
+
+sort(colSums(data_full$data_loaded))
+# dropped out from rarefying
+# NTC_5          NTC_3          NTC_2          NTC_4          NTC_1          NTC_6          NTC_9          NTC_8 
+# 74             83            118            133            139            155            218            219 
+# NTC_10         OSG_88          NTC_7  BLANK_5_25_21  BLANK_7_21_21         OSG_86  BLANK_7_27_21         OSG_97 
+# 304            432            471            555            600            602            622            908 
+# BLANK_9_13_21         OSG_23 BLANK_11_18_21         OSG_84         OSG_85         CUWY_3    
+# 1025           1379           1543           1649           1682           1952 
+sum(colSums(data_full$data_loaded))
+# 5278630 total reads back
+
+sort(colSums(data_full$data_loaded))
+
+data_full_rar=(single_rarefy(data_full, 2000))
+
+# Find average reads per sample
+
+data_no_blanks <- filter_data(data_full, filter_cat = "Type", filter_vals = "Blank")
+
+input_no_blanks <- filter_data(data_no_blanks, filter_cat = "Type", filter_vals = "PCR Blank")
+
+mean(colSums(input_no_blanks$data_loaded))
+# 16823.92 average reads per sample
+
+unique(input_no_blanks$map_loaded$Type)
+
+input_gut <- filter_data(input_no_blanks, filter_cat = "Type", filter_vals = c("Soil", "Vegetation"))
+input_gut <- filter_data(input_gut, filter_cat = "State", filter_vals = c("Utah"))
+input_soil <- filter_data(input_no_blanks, filter_cat = "Type", filter_vals = c("Gut", "Vegetation"))
+input_veg <- filter_data(input_no_blanks, filter_cat = "Type", filter_vals = c("Gut", "Soil"))
+
+input_gut_strigosa <- filter_data(input_gut, filter_cat = "Species", filter_vals = c("subrudis"))
+
+input_gut_colorado <- filter_data(input_gut_strigosa, filter_cat = "State", filter_vals = c("Nevada", "Wyoming", "New Mexico", "Idaho", "Montana"))
+
+input_no_blanks2 <- filter_data(input_no_blanks, filter_cat = "Species", filter_vals = c("subrudis"))
+
+sum(colSums(input_gut_strigosa$data_loaded))
+# 3216093 total reads just for snail guts - strigosa
+
+# Running some summary stats on just snail guts
+mean(colSums(input_gut_strigosa$data_loaded)) #14958.57
+sd(colSums(input_gut_strigosa$data_loaded)) # 6579.785
+max(colSums(input_gut_strigosa$data_loaded)) # 34344
+min(colSums(input_gut_strigosa$data_loaded)) # 432
+
+# Find core taxa
+core_taxa(input_gut_strigosa, type_header = 'State', prop_types = 0.6)
+
+core_taxa(input_gut_strigosa, type_header = 'Species', prop_types = 1)
+
+head(input_gut_strigosa$map_loaded$rich)
+
+# setwd("/Users/brch7026/Desktop/Oreohelix/Biogeography/")
+write.csv(input_gut_strigosa$data_loaded, "strigosarich.csv")
+# Select only historic + 2018 adult samples
+
+taxa_table_full <- read.csv("strigosarich.csv", header = TRUE)
+
+taxaGeo <- taxa_table_full %>% 
+  dplyr::select(-contains("NTC")) %>%
+  dplyr::select(-contains("B")) %>%
+  dplyr::select(-contains("VEG")) %>%
+  dplyr::select(-contains("SS"))
+
+# view(taxaGeo)
+
+richnessTaxa <- data.matrix(taxaGeo[,-(1:2)])
+view(richnessTaxa)
+# Add back OTU names
+rownames(richnessTaxa) <- taxaGeo$X
+
+# Replace all entries greater than 0 with 1s
+richnessTaxa[which(richnessTaxa > 0)] <- 1
+
+# transform into data frame
+class(richnessTaxa)
+richnessTaxa <- data.frame(richnessTaxa)
+# view(richnessTaxa)
+
+# Get total number of OTUs, check if accurate
+allOTUs <- which(richnessTaxa == 1)
+length(allOTUs)
+# 66098 total ASVs in strigosa guts  
+
+readsAll <- data.matrix(taxaGeo[,-(1)])
+# view(readsAll)
+class(readsAll)
+as.numeric(readsAll)
+sum(readsAll) - 2777129
+
+num_snails <- rowSums(richnessTaxa)
+prop_snails <- num_snails / 222
+
+num_reads <- rowSums(readsAll)
+sum(num_reads)
+prop_reads <- num_reads / 3294620
+
+percent100 <- which(rowSums(richnessTaxa) == 192)
+sumPercent100 <- sum(readsAll[c(1,3,9), ])
+length(percent100) # 0
+
+percent90 <- which(rowSums(richnessTaxa) >= 172)
+sumPercent90 <- sum(readsAll[percent90, ])
+length(percent90) # 3
+# ASV_1 ASV_3 ASV_9 
+
+percent80 <- which(rowSums(richnessTaxa) >= 153)
+sumPercent80 <- sum(readsAll[percent80, ])
+length(percent80) # 11
+# ASV_1 ASV_10 ASV_14 ASV_16  ASV_2 ASV_20  ASV_3  ASV_5  ASV_7  ASV_8  ASV_9 
+
+sumOTU1 <- sum(readsAll[1, ])
+sumOTU3 <- sum(readsAll[5385, ])
+sumOTU9 <- sum(readsAll[10207, ])
+
+sumcommon3OTU <- sumOTU1 + sumOTU3 + sumOTU9
+
+sumcommon3OTU/2777129
+# 0.1667387 or 16.67% of reads
+# 3 ASVs found in 90% of samples make up 16.67% of all reads
+
+### STACKED BAR PLOTS ####
+# Make stacked bar plots based on metadata categories
+
+# Which phyla drive differences in composition between sample types?
+tax_sum_phyla = summarize_taxonomy(input_no_blanks, level = 2, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_phyla, input_no_blanks$map_loaded, 
+                            type_header = 'Type', filter_level = 0.05, test_type = 'KW')
+# Families?
+tax_sum_families = summarize_taxonomy(input_no_blanks, level = 5, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_families, input_no_blanks$map_loaded, 
+                            type_header = 'Type', filter_level = 0.05, test_type = 'KW')
+
+# Which phyla drive differences in composition between sampling states?
+tax_sum_phyla = summarize_taxonomy(input_gut_strigosa, level = 2, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_phyla, input_gut_strigosa$map_loaded, 
+                            type_header = 'State', filter_level = 0.05, test_type = 'KW')
+# Families?
+tax_sum_families = summarize_taxonomy(input_gut_strigosa, level = 5, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_families, input_gut_strigosa$map_loaded, 
+                            type_header = 'State', filter_level = 0.05, test_type = 'KW')
+
+# Genera?
+tax_sum_genera = summarize_taxonomy(input_gut_strigosa, level = 6, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_genera, input_gut_strigosa$map_loaded, 
+                            type_header = 'State', filter_level = 0.05, test_type = 'KW')
+
+# Bar plot of state taxonomic compositions
+bars <- plot_taxa_bars(tax_sum_families,
+          input_gut_strigosa$map_loaded,
+          "State",
+          num_taxa = 10,
+          data_only = TRUE)
+
+ggplot(bars, aes(group_by, mean_value, fill = taxon)) +
+  geom_bar(stat = "identity", colour = "black") + #size = 0.25)
+  labs(x = "State", y = "Relative Abundance", fill = "Family") +
+  theme_bw() +
+  theme(legend.text=element_text(size=16), legend.title=element_text(size=18,face="bold")) +
+  theme(axis.text=element_text(size=16, face="bold"),
+        axis.title=element_text(size=18,face="bold")) 
+  # theme(axis.title.y = element_text(margin = margin(t = 20, r = 20, b = 20, l = 0)))
+
+# Families in snail species?
+tax_sum_families = summarize_taxonomy(input_gut, level = 5, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_families, input_gut$map_loaded, 
+                            type_header = 'Species', filter_level = 0.05, test_type = 'KW')
+
+# Bar plot of state taxonomic compositions
+bars <- plot_taxa_bars(tax_sum_families,
+                       input_gut$map_loaded,
+                       "Species",
+                       num_taxa = 10,
+                       data_only = TRUE)
+
+# Create some color palettes
+Different_Colors_Pal1 <- c("#8fc6d6", "#0b8eb5", "#Bce993", "#4d8a38", "#F7a9bc", "#E01244", "#Ed9c34", "#E55405")
+
+Different_Colors_Pal <- c("#F76c64", "#D6a128", "#95cc16", "#31945f", "#09eefb", "#056deb", "#7a18e0", "#F97ae2")
+
+Different_Colors_Pal_more <- c("#581845", "#C70039", "#FF5733", "#FFC300", "#95cc16", "#31945f", "#09eefb", "#4397FA", "#7a18e0", "#F97ae2", "#A07862", "#918495")
+
+Different_Colors_Pal_state <- c("#F76c64", "#D6a128", "#95cc16", "#09eefb", "#056deb", "#7a18e0", "#F97ae2")
+
+# Stacked bar plot of family taxonomy by state
+ggplot(bars, aes(group_by, mean_value, fill = taxon)) +
+  geom_bar(stat = "identity", colour = "black", size = 0.25) +
+  labs(x = "State", y = "Relative Abundance", fill = "Family") +
+  scale_color_manual(values = Different_Colors_Pal_more) +
+  scale_fill_manual(values = Different_Colors_Pal_more) +
+  theme_bw() +
+  theme(legend.text=element_text(size=16), legend.title=element_text(size=18,face="bold")) +
+  theme(axis.text=element_text(size=16, face="bold"),
+        axis.title=element_text(size=18,face="bold")) 
+  # theme(axis.title.y = element_text(margin = margin(t = 20, r = 20, b = 20, l = 0)))
+
+# Which phyla drive differences in composition between habitat types?
+tax_sum_phyla = summarize_taxonomy(input_gut_colorado, level = 2, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_phyla, input_gut_colorado$map_loaded, 
+                            type_header = 'Habitat_Type', filter_level = 0.05, test_type = 'KW')
+
+tax_sum_families = summarize_taxonomy(input_gut_colorado, level = 5, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_families, input_gut_colorado$map_loaded, 
+                            type_header = 'Habitat_Type', filter_level = 0.05, test_type = 'KW')
+
+# Which families drive differences in composition between human impact?
+tax_sum_families = summarize_taxonomy(input_gut_colorado, level = 5, report_higher_tax = FALSE)
+taxa_summary_by_sample_type(tax_sum_families, input_gut_colorado$map_loaded, 
+                            type_header = 'Human_Impact', filter_level = 0.05, test_type = 'KW')
+
+bars <- plot_taxa_bars(tax_sum_families,
+                       input_gut_colorado$map_loaded,
+                       "Human_Impact",
+                       num_taxa = 10,
+                       data_only = TRUE)
+
+# Reorder x-axis
+input_gut_colorado$map_loaded$Human_Impact <- as.factor(input_gut_colorado$map_loaded$Human_Impact)
+input_gut_colorado$map_loaded$Human_Impact <- factor(input_gut_colorado$map_loaded$Human_Impact,levels = c("Low", "Medium", "High"))
+
+ggplot(bars, aes(group_by, mean_value, fill = taxon)) +
+  geom_bar(stat = "identity", colour = "black", size = 0.25) +
+  labs(x = "Human Impact", y = "Relative Abundance", fill = "Family") +
+  theme_bw() +
+  theme(legend.text=element_text(size=16), legend.title=element_text(size=18,face="bold")) +
+  theme(axis.text=element_text(size=16, face="bold"),
+        axis.title=element_text(size=18,face="bold")) 
+  # theme(axis.title.y = element_text(margin = margin(t = 20, r = 20, b = 20, l = 0)))
+
+## RICHNESS ####
+
+# First let's get the number of ASVs (richness) per sample and add it to the mapping file
+input_gut_strigosa$map_loaded$rich <- specnumber(input_gut_strigosa$data_loaded, MARGIN = 2)
+
+input_soil$map_loaded$rich <- specnumber(input_soil$data_loaded, MARGIN = 2)
+
+input_veg$map_loaded$rich <- specnumber(input_veg$data_loaded, MARGIN = 2)
+
+# Three category example
+leveneTest(input_gut_strigosa$map_loaded$rich ~ input_gut_strigosa$map_loaded$State)
+
+# Variance homogeneous (p > 0.05)
+m <- aov(input_gut_strigosa$map_loaded$rich ~ input_gut_strigosa$map_loaded$State)
+
+shapiro.test(m$residuals)
+# Residuals NOT normally distributed (p < 0.05)
+
+# If Levene's Test or Shapiro-Wilk Test p < 0.05 (YES), use Krukal-Wallis Test
+kruskal.test(input_gut_strigosa$map_loaded$rich ~ input_gut_strigosa$map_loaded$State)
+
+# Make sure to run this first, or else you'll get an error about levels not being finite
+input_gut_strigosa$map_loaded$State <- as.factor(input_gut_strigosa$map_loaded$State)
+
+# Post-hoc test to determine where differences are
+# posthoc.kruskal.nemenyi.test(input_gut_strigosa$map_loaded$rich ~ input_gut_strigosa$map_loaded$State)
+
+# PMCMR is now outdated. Use PMCMRplus
+PMCMRplus::kwAllPairsNemenyiTest(input_gut_strigosa$map_loaded$rich ~ input_gut_strigosa$map_loaded$State)
+# Wyoming significantly different from CO and ID 
+
+#             Colorado  Idaho Montana Nevada New Mexico
+#   Idaho      0.9988   -      -       -      -         
+#   Montana    0.8708   0.8494 -       -      -         
+#   Nevada     0.9883   0.9717 0.9953  -      -         
+#   New Mexico 0.8127   0.7972 1.0000  0.9876 -         
+#   Wyoming    0.0037   0.0218 0.4854  0.1098 0.5918  
+
+# Plot. Just copy the previous plot, change the variable name and the colour argument!
+ggplot(input_gut_strigosa$map_loaded, aes(State, rich, colour = State)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "State", y = "ASV Richness", colour = "State") +
+  scale_color_manual(values = Different_Colors_Pal_state) +
+  scale_fill_manual(values = Different_Colors_Pal_state) +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 16), 
+        axis.text = element_text(size = 14),
+        legend.position = "none")
+
+input_gut_colorado$map_loaded$rich <- specnumber(input_gut_colorado$data_loaded, MARGIN = 2)
+# Three category example
+leveneTest(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Type)
+
+# Variance homogeneous (p > 0.05)
+m <- aov(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Type)
+
+shapiro.test(m$residuals)
+# Residuals NOT normally distributed (p < 0.05)
+
+# If Levene's Test or Shapiro-Wilk Test p < 0.05 (YES), use Krukal-Wallis Test
+kruskal.test(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Type)
+
+# Make sure to run this first, or else you'll get an error about levels not being finite
+input_gut_colorado$map_loaded$Habitat_Type <- as.factor(input_gut_colorado$map_loaded$Habitat_Type)
+
+# Post-hoc test to determine where differences are
+nemenyi_habtype <- PMCMRplus::kwAllPairsNemenyiTest(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Type, plot = FALSE)
+# Rocky Habitat is signifcantly more rich than forest, grassland same
+
+# Make sure to run this first, or else you'll get an error about levels not being finite
+input_gut_colorado$map_loaded$Habitat_Complexity_Qual <- as.factor(input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+
+kruskal.test(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+nemenyi_habcomp <- PMCMRplus::kwAllPairsNemenyiTest(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+# medium and high significantly different
+
+kruskal.test(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Human_Impact)
+nemenyi_humimp <- PMCMRplus::kwAllPairsNemenyiTest(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Human_Impact)
+# all three sig different
+
+# test in soil/veg
+kruskal.test(input_soil$map_loaded$rich ~ input_soil$map_loaded$Human_Impact)
+PMCMRplus::kwAllPairsNemenyiTest(input_gut_colorado$map_loaded$rich ~ input_gut_colorado$map_loaded$Human_Impact)
+# all three sig different
+
+# Plot richness by habitat type
+
+# Reorder
+input_gut_colorado$map_loaded$Habitat_Type <- as.factor(input_gut_colorado$map_loaded$Habitat_Type)
+input_gut_colorado$map_loaded$Habitat_Type <- factor(input_gut_colorado$map_loaded$Habitat_Type,levels = c("Rocky", "Grassland", "Forest"))
+
+# Create color palette for habitat type
+habtype_pal <- c("#C46BAE", "#A1CF6B", "#08605F")
+
+# richness of habitat type
+habtype_rich <- ggplot(input_gut_colorado$map_loaded, aes(Habitat_Type, rich, colour = Habitat_Type)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "Habitat Type", y = "ASV Richness", colour = "Habitat Type") +
+  scale_color_manual(values = habtype_pal) +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 20), 
+        axis.text = element_text(size = 18),
+        legend.position = "none")
+
+# Add the letters above the plot to indicate post-hoc results
+letters <- c("a", "a,b", "b")
+
+for(i in 1:length(letters)) {
+  xpos <- as.numeric(i)
+  ypos <- max(input_gut_colorado$map_loaded$rich) + 50
+  label <- letters[i]
+  habtype_rich <- habtype_rich + annotate("text", x = xpos, y = ypos, label = label, fontface = "bold", size = 8)
+}
+
+# Save plot directly with high resolution
+
+png(filename = "HabTypexRichness.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+habtype_rich
+dev.off()
+
+# Plot richness by human impact
+
+# Create palette
+humimp_pal <- c("#235789", "#8599EA", "#ED1C24")
+
+# richness of human impact
+humimp_rich <- ggplot(input_gut_colorado$map_loaded, aes(Human_Impact, rich, colour = Human_Impact)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "Human Impact Level", y = "ASV Richness") +
+  scale_color_manual(values = humimp_pal) +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 20), 
+        axis.text = element_text(size = 18),
+        legend.position = "none")
+
+# Add the letters above the plot to indicate post-hoc results
+letters <- c("a", "b", "c")
+
+for(i in 1:length(letters)) {
+  xpos <- as.numeric(i)
+  ypos <- max(input_gut_colorado$map_loaded$rich) + 50
+  label <- letters[i]
+  humimp_rich <- humimp_rich + annotate("text", x = xpos, y = ypos, label = label, fontface = "bold", size = 8)
+}
+
+# Save plot directly with high resolution
+
+png(filename = "HumImpxRichness.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+humimp_rich
+dev.off()
+
+# Plot richness by habitat complexity
+
+# Create palette
+habcom_pal <- c("#9A9F56", "#119DA4")
+
+# Convert habitat complexity to a factor and change the name of medium to low
+input_gut_colorado$map_loaded$Habitat_Complexity_Qual2 <- factor(input_gut_colorado$map_loaded$Habitat_Complexity_Qual, levels = c("Medium", "High"), labels = c("Low", "High"))
+
+levels(input_gut_colorado$map_loaded$Habitat_Complexity_Qual2)
+
+# richness of human impact
+habcomp_rich <- ggplot(input_gut_colorado$map_loaded, aes(Habitat_Complexity_Qual2, rich, colour = Habitat_Complexity_Qual2)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "Habitat Complexity", y = "ASV Richness") +
+  scale_color_manual(values = habcom_pal) +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 20), 
+        axis.text = element_text(size = 18),
+        legend.position = "none")
+
+# Add the letters above the plot to indicate post-hoc results
+letters <- c("a", "b")
+
+for(i in 1:length(letters)) {
+  xpos <- as.numeric(i)
+  ypos <- max(input_gut_colorado$map_loaded$rich) + 50
+  label <- letters[i]
+  habcomp_rich <- habcomp_rich + annotate("text", x = xpos, y = ypos, label = label, fontface = "bold", size = 8)
+}
+
+# Save plot directly with high resolution
+png(filename = "HabCompxRichness.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+habcomp_rich
+dev.off()
+
+## EVENNESS ####
+
+input_gut_colorado$map_loaded$rich <- specnumber(input_gut_colorado$data_loaded, MARGIN = 2)
+
+# Calculate evenness and add
+input_gut_colorado$map_loaded$evenness <- diversity(input_gut_colorado$data_loaded, MARGIN = 2, index="shannon")/log(input_gut_colorado$map_loaded$rich)
+
+# Three category example
+leveneTest(input_gut_colorado$map_loaded$evenness ~ input_gut_colorado$map_loaded$Human_Impact)
+# >0.001 highly significant, so need non-parametric KW test
+
+# If Levene's Test or Shapiro-Wilk Test p < 0.05 (YES), use Krukal-Wallis Test
+kruskal.test(input_gut_colorado$map_loaded$evenness ~ input_gut_colorado$map_loaded$Human_Impact)
+
+kruskal.test(input_gut_colorado$map_loaded$evenness ~ input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+
+# Make sure to run this first, or else you'll get an error about levels not being finite
+input_gut_colorado$map_loaded$Human_Impact <- as.factor(input_gut_colorado$map_loaded$Human_Impact)
+
+input_gut_colorado$map_loaded$Habitat_Complexity_Qual <- as.factor(input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+
+# Post-hoc test to determine where differences are
+# posthoc.kruskal.nemenyi.test(input_gut_colorado$map_loaded$evenness ~ input_gut_colorado$map_loaded$Human_Impact)
+# Significant differences between medium and high, no significance between low and medium or low and high
+
+# posthoc.kruskal.nemenyi.test(input_gut_colorado$map_loaded$evenness ~ input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+
+# Plot. Just copy the previous plot, change the variable name and the colour argument!
+humimp_even <- ggplot(input_gut_colorado$map_loaded, aes(Human_Impact, evenness, colour = Human_Impact)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "Human Impact Level", y = "Evenness", colour = "Human Impact Level") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 16), 
+        axis.text = element_text(size = 14),
+        legend.position = "none")
+# medium is significantly higher than high human impact, low in the middle
+
+habcomplex_even <- ggplot(input_gut_colorado$map_loaded, aes(Habitat_Complexity_Qual, evenness, colour = Habitat_Complexity_Qual)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(size = 3, alpha = 0.5) +
+  labs(x = "Human Impact Level", y = "Evenness", colour = "Habitat Complexity") +
+  theme_bw() +
+  theme(axis.title = element_text(face = "bold", size = 16), 
+        axis.text = element_text(size = 14),
+        legend.position = "none")
+
+# High habitat complexity has sig higher evenness than medium
+
+# CREATE ALPHA DIVERSITY METRICS BOXPLOTS ####
+
+# Get richness, evenness, shannon for all
+input_no_blanks2$map_loaded$rich <- specnumber(input_no_blanks2$data_loaded, MARGIN = 2)
+
+# Calculate evenness and add
+input_no_blanks2$map_loaded$evenness <- diversity(input_no_blanks2$data_loaded, index="shannon")/log(input_no_blanks2$map_loaded$rich)
+input_no_blanks2$map_loaded$evenness <- input_no_blanks2$map_loaded$evenness$shannon
+
+# Get Shannon index
+input_no_blanks2$map_loaded$shannon <- diversity((input_no_blanks2$data_loaded), index="shannon")
+
+input_no_blanks2$map_loaded$shannon <- input_no_blanks2$map_loaded$shannon$shannon
+
+# Gather data together
+plot_dat_snail_4 <- input_no_blanks2$map_loaded %>% dplyr::select(Type, rich, evenness, shannon) %>% tidyr::gather("measure", "value", -1)
+
+plot_dat_snail_4$measure <- as.factor(plot_dat_snail_4$measure)
+
+# Specify the desired order of categories
+plot_dat_snail_4$measure <- factor(plot_dat_snail_4$measure, levels = c("rich", "evenness", "shannon"))
+
+levels(plot_dat_snail_4$measure) <- c("ASV Richness", "Evenness", "Shannon Index")
+
+input_no_blanks2$map_loaded$Type <- as.factor(input_no_blanks2$map_loaded$Type)
+
+# KW tests by sample type
+kruskal.test(input_no_blanks2$map_loaded$rich ~ input_no_blanks2$map_loaded$Type)
+PMCMRplus::kwAllPairsNemenyiTest(input_no_blanks2$map_loaded$rich ~ input_no_blanks2$map_loaded$Type)
+
+kruskal.test(input_no_blanks2$map_loaded$evenness ~ input_no_blanks2$map_loaded$Type)
+PMCMRplus::kwAllPairsNemenyiTest(input_no_blanks2$map_loaded$evenness ~ input_no_blanks2$map_loaded$Type)
+
+kruskal.test(input_no_blanks2$map_loaded$shannon ~ input_no_blanks2$map_loaded$Type)
+PMCMRplus::kwAllPairsNemenyiTest(input_no_blanks2$map_loaded$shannon ~ input_no_blanks2$map_loaded$Type)
+
+gut_metrics <- plot_dat_snail_4 %>%
+  filter(Type == "Gut")
+gut_metrics2 <- gut_metrics %>%
+    dplyr::group_by(measure) %>%
+  dplyr::summarise(mean_richness = mean(value), sd = sd(value))
+
+veg_metrics <- plot_dat_snail_4 %>%
+  filter(Type == "Vegetation")
+veg_metrics2 <- veg_metrics %>%
+  dplyr::group_by(measure) %>%
+  dplyr::summarise(mean_richness = mean(value), sd = sd(value))
+
+soil_metrics <- plot_dat_snail_4 %>%
+  filter(Type == "Soil")
+soil_metrics2 <- soil_metrics %>%
+  dplyr::group_by(measure) %>%
+  dplyr::summarise(mean_richness = mean(value), sd = sd(value))
+
+# Type palette
+type_pal <- c('#dc856e', "#047a7a", '#c1d0b9')
+
+# Make labels
+label_df_snail_even_2 <- data.frame(x = c("Gut", "Soil", "Vegetation"),
+                                    y = c(0.9, 1, 1),
+                                    label = c("a", "b", "b"))
+
+label_df_snail_rich_2 <- data.frame(x = c("Gut", "Soil", "Vegetation"),
+                                    y = c(1500, 5000, 4400),
+                                    label = c("a", "b", "b"))
+
+label_df_snail_shan_2 <- data.frame(x = c("Gut", "Soil", "Vegetation"),
+                                    y = c(6.5, 8.3, 8.3),
+                                    label = c("a", "b", "b"))
+
+lab_dat_snail_2 <- rbind(label_df_snail_rich_2, label_df_snail_even_2, label_df_snail_shan_2)
+
+measure_names_snail_2 <- c("ASV Richness", "ASV Richness", "ASV Richness", "Evenness", "Evenness", "Evenness", "Shannon Index", "Shannon Index", "Shannon Index")
+lab_dat_snail_2$measure <- measure_names_snail_2
+
+diversityBoxplots <- plot_dat_snail_4 %>% ggplot(aes(x = Type, y = value, fill =Type, facets = measure)) + 
+  geom_boxplot(outlier.shape = NA) +
+  scale_fill_manual(values = type_pal) +
+  geom_jitter(size = 1, alpha = 0.5) +
+  theme_bw() +
+  facet_grid(rows = vars(measure), scales = "free") +
+  theme(axis.title.y = element_blank()) +
+  theme(axis.title.x=element_blank()) +
+  theme(axis.text.x = element_text(size = 14, face = "bold"),
+        axis.text.y = element_text(size = 14.5),
+        legend.position = "none") +
+  theme(strip.text.y = element_text(size = 14, face = "bold")) +
+  labs(x = "Sample Type", fill = "Sample Type") +
+  geom_text(data = lab_dat_snail_2, aes(x, y, label = label, fontface="bold"), size = 5, inherit.aes = F)
+
+# Save plot directly with high resolution
+png(filename = "DiversityBoxplots.png",
+    units = "in",
+    width = 6,
+    height = 8,
+    res = 1200)
+diversityBoxplots
+dev.off()
+
+## ORDINATION ####
+
+# Just strigosa, no subrudis
+input_gut_strigosa <- filter_data(input_gut, filter_cat = "Species", filter_vals = c("subrudis"))
+
+input_gut_colorado <- filter_data(input_gut_strigosa, filter_cat = "State", filter_vals = c("Nevada", "Wyoming", "New Mexico", "Idaho", "Montana"))
+# input_gut_colorado_2 <- filter_data(input_gut, filter_cat = "State", filter_vals = c("Nevada", "Wyoming", "New Mexico", "Idaho", "Montana"))
+
+# unique(input_gut_strigosa$map_loaded$State)
+
+input_gut_rocky <- filter_data(input_gut_colorado, filter_cat = "Habitat_Type", filter_vals = c("Forest", "Grassland"))
+input_gut_forest <- filter_data(input_gut_colorado, filter_cat = "Habitat_Type", filter_vals = c("Rocky", "Grassland"))
+input_gut_grass <- filter_data(input_gut_colorado, filter_cat = "Habitat_Type", filter_vals = c("Forest", "Rocky"))
+
+# Find top taxa
+return_top_taxa(input_gut_rocky, 10) 
+return_top_taxa(input_gut_grass, 10) 
+return_top_taxa(input_gut_forest, 10) 
+return_top_taxa(input_gut_strigosa, 10) 
+return_top_taxa(input_gut_colorado, 10) 
+
+dm_colorado = calc_dm(input_gut_colorado$data_loaded)
+adonis2(dm_colorado ~ input_gut_colorado$map_loaded$Habitat_Type)
+# R2 = 0.10683
+
+adonis2(dm_colorado ~ input_gut_colorado$map_loaded$Human_Impact)
+# R2 = 0.09388
+
+adonis2(dm_colorado ~ input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+# R2 = 0.06348
+
+adonis2(dm_colorado ~ input_gut_colorado$map_loaded$`Elevation (in ft)` + (1:input_gut_colorado$map_loaded$Location))
+# R2 = 0.01511 for elevation 
+
+adonis2(dm_colorado ~ input_gut_colorado$map_loaded$Location + (1:input_gut_colorado$map_loaded$`Elevation (in ft)`))
+
+ordination_colorado = calc_ordination(dm_colorado, 'nmds')
+
+# Habitat complexity NMDS
+habcomp_ord <- plot_ordination(input_gut_colorado, ordination_colorado, 'Habitat_Complexity_Qual2', hulls=TRUE) +
+  theme(text = element_text(size=20)) +
+  scale_color_manual(values = habcom_pal, name = "Habitat Complexity") +
+  scale_fill_manual(values = habcom_pal, name = "Habitat Complexity") +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22), #change legend text font size 
+        legend.title = element_text(size = 20, face = "bold"))
+
+# Save plot directly with high resolution
+png(filename = "HabCompxOrd.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+habcomp_ord
+dev.off()
+
+# plot PCA and boxplot together 
+library(cowplot)
+# png(filename = paste0(figureoutput, "HabComplex_combo.png"),
+#     units = "in",
+#     width = 20,
+#     height = 10,
+#     res = 1200)
+# plot_grid(habcomp_rich ,habcomp_ord, nrow = 1, align = "h", labels = c('A', 'B')) # don't love the way this looks
+# # optional: add labels = c('A', 'B')
+# dev.off()
+
+# Habitat type NMDS
+
+# Specify the desired order of categories
+input_gut_colorado$map_loaded$Habitat_Type <- factor(input_gut_colorado$map_loaded$Habitat_Type, levels = c("Rocky", "Grassland", "Forest"))
+
+habtype_ord <- plot_ordination(input_gut_colorado, ordination_colorado, 'Habitat_Type', hulls=TRUE) +
+  theme(text = element_text(size=20)) +
+  scale_color_manual(values = habtype_pal, name = "Habitat Type") +
+  scale_fill_manual(values = habtype_pal, name = "Habitat Type") +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22),
+        legend.title = element_text(size = 20, face = "bold")) #change legend text font size 
+
+# Save plot directly with high resolution
+png(filename = "HabTypexOrd.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+habtype_ord
+dev.off()
+
+# Human impact NMDS
+
+# Specify the desired order of categories
+input_gut_colorado$map_loaded$Human_Impact <- factor(input_gut_colorado$map_loaded$Human_Impact, levels = c("Low", "Medium", "High"))
+
+humimp_ord <- plot_ordination(input_gut_colorado, ordination_colorado, 'Human_Impact', hulls=TRUE) +
+  theme(text = element_text(size=20)) +
+  scale_color_manual(values = humimp_pal, name = "Human Impact") +
+  scale_fill_manual(values = humimp_pal, name = "Human Impact") +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22),
+        legend.title = element_text(size = 20, face = "bold")) #change legend text font size 
+
+# Save plot directly with high resolution
+png(filename = "HumImpxOrd.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+humimp_ord
+dev.off()
+
+# Colorado Location NMDS
+
+# Specify the desired order of categories
+input_gut_colorado$map_loaded$Location <- factor(input_gut_colorado$map_loaded$Location, levels = c("Glenwood Canyon", "Hanging Lake Site 1", "Hanging Lake Site 2", "Hanging Lake Site 3", "Jess Weaver Trail WRNF", "Mountain Research Station", "Routt Lower Bear Trail", "Steamboat Spgs Old Fish Creek Falls"),
+                                                 labels = c("Glenwood Springs", "Hanging Lake 1", "Hanging Lake 2", "Hanging Lake 3", "Jess Weaver Trail", "Mountain Research Station", "Lower Bear Trail", "Steamboat Springs"))
+
+COLocation_Ord <- plot_ordination(input_gut_colorado, ordination_colorado, 'Location', hulls=TRUE) +
+  theme(text = element_text(size=20)) +
+  scale_color_manual(values = Different_Colors_Pal, name = "Location") +
+  scale_fill_manual(values = Different_Colors_Pal, name = "Location") +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22),
+        legend.title = element_text(size = 20, face = "bold", hjust = 0)) #change legend text font size 
+
+# Save plot directly with high resolution
+png(filename = "COLocationxOrd.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+COLocation_Ord 
+dev.off()
+
+# Species Ordination - not used in publication
+dm_all = calc_dm(input_gut$data_loaded)
+
+ordination_sp = calc_ordination(dm_all, 'nmds')
+plot_ordination(input_gut, ordination_sp, 'Species', hulls=TRUE) +
+  theme(text = element_text(size=20)) +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22)) #change legend text font size
+
+#  Species permanova - not used in pub
+adonis2(formula = dm_all ~ Species,
+        data = input_gut$map_loaded, by = "margin", permutations = 999)
+
+## Permanovas ####
+
+set.seed(1223) # To make reproducible 
+
+dm_strigosa = calc_dm(input_gut_strigosa$data_loaded)
+
+#Permanova by state (for Figure 3)
+adonis2(dm_strigosa ~ input_gut_strigosa$map_loaded$State + (1:input_gut_strigosa$map_loaded$`Elevation (in ft)`))
+# R2 = 0.08832
+
+# Perm by location (all)
+adonis2(dm_strigosa ~ input_gut_strigosa$map_loaded$Location + (1:input_gut_strigosa$map_loaded$`Elevation (in ft)`))
+# R2 = 0.32357
+
+# Perm by year
+adonis2(dm_strigosa ~ input_gut_strigosa$map_loaded$Year + (1:input_gut_strigosa$map_loaded$`Elevation (in ft)`) + (1:input_gut_strigosa$map_loaded$Location))
+# R2 = 0.03782 for year
+
+adonis2(dm_strigosa ~ input_gut_strigosa$map_loaded$`Elevation (in ft)` + (1:input_gut_strigosa$map_loaded$Location))
+# R2 = 0.01511 for elevation     
+
+# calc ordination for strigosa
+ordination_strig = calc_ordination(dm_strigosa, 'nmds')
+
+# does not show ordination
+# plot_ordination(input_gut_strigosa, ordination_strig, 'Location', hulls=TRUE) +
+#   theme(text = element_text(size=20)) +
+#   theme(legend.key.size = unit(2, 'cm'), #change legend key size
+#         legend.key.height = unit(1, 'cm'), #change legend key height
+#         legend.key.width = unit(1, 'cm'), #change legend key width
+#         legend.text = element_text(size=22)) #change legend text font size 
+
+State_All_Ord <- plot_ordination(input_gut_strigosa, ordination_strig, 'State', hulls=TRUE)
+
+State_All_Ord <- State_All_Ord +
+  scale_color_manual(values = Different_Colors_Pal_state, name = "State") +
+  scale_fill_manual(values = Different_Colors_Pal_state, name = "State") +
+  theme(text = element_text(size=20)) +
+  theme(legend.key.size = unit(2, 'cm'), #change legend key size
+        legend.key.height = unit(1, 'cm'), #change legend key height
+        legend.key.width = unit(1, 'cm'), #change legend key width
+        legend.text = element_text(size=22),
+        legend.title = element_text(size = 20, face = "bold", hjust = 0)) #change legend text font size 
+
+# Save plot directly with high resolution
+png(filename = "StatexOrd.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    pointsize = 14,
+    res = 1200)
+State_All_Ord 
+dev.off()
+
+## Creating map figures ####
+
+# install.packages("usmap")
+library(usmap)
+library(ggplot2)
+
+map <- plot_usmap(include = c("WY", "ID", "NV", "CO", "NM", "MT"), color = Different_Colors_Pal_state)
+
+Different_Colors_Pal_state <- c("#F76c64", "#D6a128", "#95cc16", "#09eefb", "#056deb", "#7a18e0", "#F97ae2")
+plot_usmap(include = c("CO"), fill = "#F76c64")
+plot_usmap(include = c("ID"), fill = "#D6a128")
+plot_usmap(include = c("MT"), fill = "#95cc16")
+plot_usmap(include = c("NV"), fill = "#09eefb")
+plot_usmap(include = c("NM"), fill = "#056deb")
+plot_usmap(include = c("WY"), fill = "#7a18e0")
+
+# NEW 
+map_list <- list()
+
+map_list[[1]] <- plot_usmap(include = c("CO"), fill = "#F76c64")
+map_list[[2]] <- plot_usmap(include = c("ID"), fill = "#D6a128")
+map_list[[3]] <- plot_usmap(include = c("MT"), fill = "#95cc16")
+map_list[[4]] <- plot_usmap(include = c("NV"), fill = "#09eefb")
+map_list[[5]] <- plot_usmap(include = c("NM"), fill = "#056deb")
+map_list[[6]] <- plot_usmap(include = c("WY"), fill = "#7a18e0")
+
+grobs_list <- lapply(map_list, ggplotGrob)
+
+# ordination_plot <- # code to generate the ordination plot
+  
+legend_title <- "State"
+legend_title_grob <- textGrob(legend_title, rot = 90, vjust = 1, gp = gpar(fontsize = 14, fontface = "bold"))
+
+legend_and_images <- rbind(legend_title_grob, grobs_list)
+
+final_plot <- grid.arrange(arrangeGrob(legend_and_images, ncol = 7), State_All_Ord, widths = c(1, 3))
+
+map_grob <- ggplotGrob(map_list)
+library(gridExtra)
+
+map_list <- list(map_CO, map_ID, map_MT, map_NV, map_NM, map_WY)
+
+p_all <- plot_grid(State_All_Ord, gridExtra::arrangeGrob(map_list), ncol=2)
+
+# ordination_state_strig = calc_ordination(dm_strigosa, 'nmds')
+# 
+# plot_ordination(input_gut_strigosa, ordination_state_strig, 'State', hulls=TRUE) +
+#   theme(text = element_text(size=20)) +
+#   theme(legend.key.size = unit(2, 'cm'), #change legend key size
+#         legend.key.height = unit(1, 'cm'), #change legend key height
+#         legend.key.width = unit(1, 'cm'), #change legend key width
+#         legend.text = element_text(size=22)) #change legend text font size 
+
+## Prep data for finding common ASVs, Venn Diagram ####
+
+# # Read in OTU Table - Full
+taxa_table_full <- read.csv("seqtab_wTax_mctoolsr.csv", header = TRUE)
+
+# View(TotalCounts_Clean)
+
+# # Getting total counts per OTU
+TotalCounts <- within(taxa_table_full, rm ('ASV_ID', 'taxonomy'))
+# # Remove Blanks
+TotalCounts_Clean <- TotalCounts %>% select(-contains("NTC")) %>% select(-contains("BLANK"))  
+TotalCounts_Clean$readSums <- rowSums(TotalCounts_Clean)
+ReadSum_Rows <- as.data.frame(TotalCounts_Clean$readSums)
+
+mean(TotalCounts_Clean$readSums)
+# 255.0093
+
+Snailtaxa <- taxa_table_full %>% 
+  select(-contains("BLANK")) %>%
+  select(-contains("NTC")) %>%
+  select(-contains("VEG")) %>%
+  select(-contains("SS"))
+# view(Snailtaxa)
+
+# Split taxonomy by Linneaen classification
+snailTaxaSplit <- Snailtaxa %>% tidyr::separate(taxonomy, c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), sep = ";")
+
+# View(snailTaxaSplit)
+
+# Create matrix
+richnessSnailTaxa <- data.matrix(snailTaxaSplit[,-(247:253)])
+richnessSnailTaxa <- data.matrix(richnessSnailTaxa[,-(1)])
+# View(richnessSnailTaxa)
+
+# # Add back OTU names
+# rownames(richnessTaxa) <- taxaFrom2018Split$OTU.ID
+
+# Replace all entries greater than 0 with 1s
+richnessSnailTaxa[which(richnessSnailTaxa > 0)] <- 1
+
+# transform into data frame
+class(richnessSnailTaxa)
+richnessSnailTaxa <- data.frame(richnessSnailTaxa)
+
+# Get total number of ASVs, check if accurate
+allASVs <- which(richnessSnailTaxa == 1)
+length(allASVs)
+# 102212
+
+# Find which ASVs are common to 100%, 90%, and 80% of samples
+
+percent100 <- which(rowSums(richnessSnailTaxa) == 245)
+# View(richnessSnailTaxa[percent100, ])
+# No ASVs common to all states
+
+percent100 <- which(rowSums(richnessSnailTaxa) >= 221)
+View(richnessSnailTaxa[percent100, ])
+# 5 common to all
+
+# separate the data into separate data frames by breastfeeding frequency
+veg <- input_no_blanks$data_loaded[which(input_no_blanks$map_loaded$Type == "Vegetation")]
+soil <- input_no_blanks$data_loaded[which(input_no_blanks$map_loaded$Type == "Soil")]
+gut <- input_no_blanks$data_loaded[which(input_no_blanks$map_loaded$Type == "Gut")]
+
+#  remove rows that only contain 0s
+veg1 <- veg[rowSums(veg != 0) > 0, ]
+soil1 <- soil[rowSums(soil != 0) > 0, ]
+gut1 <- gut[rowSums(gut != 0) > 0, ]
+
+# Assign column names
+veg2 <- row.names(veg1)
+soil2 <- row.names(soil1)
+gut2 <- row.names(gut1)
+
+#3-way Venn, 50% present threshold - HILIC
+library(ggvenn)
+x <- list('Vegetation' = veg2, 'Soil' = soil2, 'Gut' = gut2)
+
+# png(filename = paste0(figureoutput, "hilic_Venn_1m_50perc.png"),
+#     units = "in",
+#     width = 10,
+#     height = 10,
+#     pointsize = 14,
+#     res = 1200)
+ggvenn(
+  x, 
+  fill_color = c("#8cd3d4", "#D499B7",  "#F0B15C"),
+  stroke_size = 0.7, set_name_size = 7,
+  text_size = 5.5,
+)
+# dev.off()
+
+library(VennDiagram)
+# citation("VennDiagram")
+
+png(filename = "sampleTypeVenn.png",
+    units = "in",
+    width = 8,
+    height = 8,
+    res = 1200)
+grid.newpage()
+draw.triple.venn(area1 = 20392, area2 = 7308, area3 = 8568, n12 = 475, n23 = 2022, n13 = 309, 
+                 n123 = 272, category = c("Soil", "Vegetation", "Snail Gut"), lty = "blank", 
+                 fill=c("#047a7a", '#c1d0b9', '#dc856e'),
+                 col = c(alpha("#047a7a",0.3), alpha('#c1d0b9',0.3), alpha('#dc856e',0.3)),
+                 cat.col = c("#047a7a", '#c1d0b9', '#dc856e'),
+                 cex = 1.5,
+                 fontface = "bold",
+                 fontfamily = "sans",
+                 cat.cex = 2,
+                 cat.fontface = "bold",
+                 cat.default.pos = "outer",
+                 cat.pos = c(-27, 27, 135),
+                 cat.dist = c(0.055, 0.055, 0.085),
+                 cat.fontfamily = "sans",
+                 rotation = 1)
+dev.off()
+
+
+
+
+## Mantel Test ####
+
+# https://jkzorz.github.io/2019/07/08/mantel-test.html
+
+library(vegan)
+# install.packages("geosphere")
+library(geosphere)
+
+# Make sure lat and long are numeric
+input_gut_strigosa$map_loaded$Long <- as.numeric(input_gut_strigosa$map_loaded$Long)
+input_gut_strigosa$map_loaded$Lat <- as.numeric(input_gut_strigosa$map_loaded$Lat)
+
+# Make data frame with longitude and latitude 
+geo <- data.frame(input_gut_strigosa$map_loaded$Long, input_gut_strigosa$map_loaded$Lat)
+
+#Convert geographic data frame - haversine distance 
+d.geo <- distm(geo, fun = distHaversine)
+dist.geo <- as.dist(d.geo)
+
+#abundance data frame
+abund <- t(input_gut_strigosa$data_loaded)
+
+#abundance data frame - bray curtis dissimilarity
+dist.abund <- vegdist(abund, method = "bray")
+
+#abundance vs geographic 
+abund_geo <- vegan::mantel(dist.abund, dist.geo, method = "spearman", permutations = 9999, na.rm = TRUE)
+abund_geo
+
+# Mantel statistic based on Spearman's rank correlation rho 
+
+# Call:
+# vegan::mantel(xdis = dist.abund, ydis = dist.geo, method = "spearman",      permutations = 9999, na.rm = TRUE) 
+# 
+# Mantel statistic r: 0.2106 
+#       Significance: 1e-04 
+# 
+# Upper quantiles of permutations (null model):
+#    90%    95%  97.5%    99% 
+# 0.0498 0.0642 0.0772 0.0903 
+# Permutation: free
+# Number of permutations: 9999
+
+
+
+# Not used
+# # Make sure lat and long are numeric
+# input_gut$map_loaded$Long <- as.numeric(input_gut$map_loaded$Long)
+# input_gut$map_loaded$Lat <- as.numeric(input_gut$map_loaded$Lat)
+# 
+# # Make data frame with longitude and latitude 
+# geo <- data.frame(input_gut$map_loaded$Long, input_gut$map_loaded$Lat)
+# 
+# #Convert geographic data frame - haversine distance 
+# d.geo <- distm(geo, fun = distHaversine)
+# dist.geo <- as.dist(d.geo)
+# 
+# #abundance data frame
+# abund <- t(input_gut$data_loaded)
+# 
+# #abundance data frame - bray curtis dissimilarity
+# dist.abund <- vegdist(abund, method = "bray")
+# 
+# #abundance vs geographic 
+# abund_geo <- vegan::mantel(dist.abund, dist.geo, method = "spearman", permutations = 9999, na.rm = TRUE)
+# abund_geo
+
+# Mantel statistic based on Spearman's rank correlation rho 
+# 
+# Call:
+# vegan::mantel(xdis = dist.abund, ydis = dist.geo, method = "spearman",      permutations = 9999, na.rm = TRUE) 
+# 
+# Mantel statistic r: 0.1964 
+#       Significance: 1e-04 
+# 
+# Upper quantiles of permutations (null model):
+#    90%    95%  97.5%    99% 
+# 0.0440 0.0569 0.0693 0.0835 
+# Permutation: free
+# Number of permutations: 9999
+
+# Make scatterplot of Mantel test
+
+aa = as.vector(dist.abund)
+gg = as.vector(dist.geo)
+mat = data.frame(aa,gg)
+
+lm = lm(aa~gg)
+summary(lm)
+
+#abundance vs geographic distance
+mm = ggplot(mat, aes(y = aa, x = gg/1000)) + 
+  geom_point(size = 3, alpha = 0.5) +
+  geom_smooth(method = "lm", colour = "dodgerblue", alpha = 0.2) + 
+  labs(x = "Physical separation (km)", y = "Bray-Curtis Dissimilarity") + 
+  theme( axis.text.x = element_text(face = "bold",colour = "black", size = 12), 
+         axis.text.y = element_text(face = "bold", size = 11, colour = "black"), 
+         axis.title= element_text(face = "bold", size = 14, colour = "black"), 
+         panel.background = element_blank(), 
+         panel.border = element_rect(fill = NA, colour = "black"))
+mm
+
+#new data frame with vectorized distance matrices
+mat = data.frame(aa,tt,gg)
+
+
+# # Reorder x-axis
+# input_gut_colorado$map_loaded$Habitat_Complexity_Qual <- factor(input_gut_colorado$map_loaded$Habitat_Complexity_Qual,levels = c("Low", "Medium", "High"))
+
+# # Habitat Complexity ordination
+# 
+# dm_colorado = calc_dm(input_gut_colorado$data_loaded)
+# ordination_habitat = calc_ordination(dm_colorado, 'nmds')
+# plot_ordination(input_gut_colorado, ordination_habitat, 'Habitat_Complexity_Qual', hulls=TRUE) +
+#   theme(text = element_text(size=20)) +
+#   theme(legend.key.size = unit(2, 'cm'), #change legend key size
+#         legend.key.height = unit(1, 'cm'), #change legend key height
+#         legend.key.width = unit(1, 'cm'), #change legend key width
+#         legend.text = element_text(size=22)) #change legend text font size 
+# 
+# # Reorder x-axis
+# input_gut_colorado$map_loaded$Human_Impact <- factor(input_gut_colorado$map_loaded$Human_Impact, levels = c("Low", "Medium", "High"))
+# 
+# 
+# ordination_impact = calc_ordination(dm_colorado, 'nmds')
+# plot_ordination(input_gut_colorado, ordination_impact, 'Human_Impact', hulls=TRUE) +
+#   theme(text = element_text(size=20)) +
+#   theme(legend.key.size = unit(2, 'cm'), #change legend key size
+#         legend.key.height = unit(1, 'cm'), #change legend key height
+#         legend.key.width = unit(1, 'cm'), #change legend key width
+#         legend.text = element_text(size=22)) #change legend text font size 
+
+
+
+### INDICATOR SPECIES ANALYSIS ####
+
+# Indicator taxa - SIMPER or MULTIPATT
+# SIMPER (list how much each ASV contributes to dissimilarity among groups)
+
+library(vegan)
+library(indicspecies)
+
+# SIMPER by snail species - Not used in pub
+sim <- simper(t(input_gut$data_loaded), 
+              input_gut$map_loaded$Species)
+s <- summary(sim)
+
+# Let's look at the top 5 contributing to dissimilarity between strigosa and subrudis
+head(s$strigosa_subrudis, n = 5)
+
+#          average         sd     ratio       ava       avb     cumsum
+# ASV_1 0.07576149 0.11849400 0.6393698 2225.0326 595.82759 0.08384595 # Much higher ASV_1 in strigosa
+# ASV_2 0.04093064 0.07612428 0.5376818 1418.8744   1.62069 0.12914428 # higher in strigosa
+# ASV_8 0.02587394 0.03619788 0.7147917  164.4279 865.24138 0.15777921 # higher in subrudis
+# ASV_4 0.01451358 0.03766195 0.3853647  392.4419 130.48276 0.17384153 # higher in strigosa
+# ASV_9 0.01428982 0.01923687 0.7428351  157.1767 473.62069 0.18965621 # higher in subrudis
+
+# SIMPER by state
+sim2 <- simper(t(input_gut_strigosa$data_loaded), 
+               input_gut_strigosa$map_loaded$State)
+s2 <- summary(sim2)
+
+# Let's look at the top 5 contributing to dissimilarity between Montana and New Mexico (most northern/southern)
+head(s2$`New Mexico_Montana`, n = 5)
+
+#           average         sd     ratio         ava        avb    cumsum
+# ASV_1  0.16312789 0.14274520 1.1427908 4740.153846 2816.00000 0.1860265 # higher in NM
+# ASV_2  0.05598371 0.08955786 0.6251122   13.615385 1600.78571 0.2498687 # higher in Montana
+# ASV_4  0.01906029 0.03245279 0.5873236  518.769231   99.71429 0.2716046 # higher in NM
+# ASV_12 0.01412340 0.03347105 0.4219587  480.769231    0.00000 0.2877105 # higher in NM
+# ASV_50 0.01347170 0.01777524 0.7578913    7.923077  383.92857 0.3030732 # higher in Montana
+
+# NM and Idaho 
+head(s2$`Idaho_New Mexico`, n = 5)
+
+#           average         sd     ratio         ava        avb    cumsum
+# ASV_1  0.16977667 0.15926150 1.0660246 2154.842105 4740.15385 0.1918984 # higher in New Mexico
+# ASV_4  0.04965591 0.08302059 0.5981156 1167.526316  518.76923 0.2480244 # higher in Idaho
+# ASV_12 0.01526879 0.03631053 0.4205058    3.631579  480.76923 0.2652827 # higher in NM
+# ASV_99 0.01399047 0.04843265 0.2888643    0.000000  386.92308 0.2810962 # higher in NM
+# ASV_3  0.01382561 0.02477661 0.5580105  400.210526   38.76923 0.2967232 # higher in ID
+
+# SIMPER by habitat complexity
+sim3 <- simper(t(input_gut_colorado$data_loaded), 
+               input_gut_colorado$map_loaded$Habitat_Complexity_Qual)
+s3 <- summary(sim3)
+
+# Let's look at the top 5 contributing to dissimilarity between habitat complexities of high and low
+head(s3$Medium_High, n = 5)
+
+### WHEN YOU TAKE OUT SUBRUDIS, ONLY MEDIUM AND HIGH HAB. COMPLEXITY LEFT!!
+
+# SIMPER by habitat complexity
+sim4 <- simper(t(input_gut_colorado$data_loaded), 
+               input_gut_colorado$map_loaded$Human_Impact)
+s4 <- summary(sim4)
+
+head(s4$Low_High, n = 5)
+
+#          average         sd     ratio       ava       avb    cumsum
+# ASV_2 0.12745143 0.10327635 1.2340815 1113.5902 4766.7561 0.1589918 # higher in High impact
+# ASV_1 0.07852626 0.08480250 0.9259899 2275.3115 1466.5366 0.2569509 # higher in low impact
+# ASV_6 0.02875323 0.05423465 0.5301635  810.5246  476.8049 0.2928197 # higher in low
+# ASV_3 0.02482087 0.02547163 0.9744512  661.3770  604.4878 0.3237829 # higher in low
+# ASV_5 0.01781508 0.02718200 0.6554001  377.3443  423.1220 0.3460067 # higher in high
+
+### MULTIPATT ###
+
+# MULTIPATT (list ASVs associated with each group)
+set.seed(1223) # For reproducability
+mp <- multipatt(t(input_gut$data_loaded), 
+                input_gut$map_loaded$Species, 
+                func = "IndVal.g", 
+                control = how(nperm=999))
+summary(mp)
+
+# Total number of species: 12812
+# Selected number of species: 3069 
+# Number of species associated to 1 group: 3069 
+# 
+# List of species associated to each combination: 
+#   
+#   Group strigosa  #sps.  20 
+# stat p.value    
+# ASV_2    0.937   0.001 ***
+#   ASV_50   0.790   0.002 ** 
+#   ASV_11   0.710   0.009 ** 
+#   ASV_30   0.693   0.006 ** 
+#   ASV_49   0.687   0.040 *  
+#   ASV_27   0.681   0.007 ** 
+#   ASV_62   0.627   0.034 *  
+#   ASV_13   0.621   0.012 *  
+#   ASV_80   0.606   0.013 *  
+#   ASV_104  0.601   0.028 *  
+#   ASV_32   0.570   0.047 *  
+#   ASV_154  0.544   0.025 *  
+#   ASV_121  0.508   0.035 *  
+#   ASV_662  0.504   0.036 *  
+#   ASV_1339 0.502   0.042 *  
+#   ASV_249  0.500   0.043 *  
+#   ASV_147  0.482   0.038 *  
+#   ASV_236  0.479   0.042 *  
+#   ASV_177  0.472   0.034 *  
+#   ASV_1403 0.468   0.036 *  
+#   
+#   Group subrudis  #sps.  3049 
+# stat p.value    
+# ASV_122   0.946   0.001 ***
+#   ASV_102   0.881   0.001 ***
+#   ASV_31    0.866   0.001 ***
+#   ASV_106   0.859   0.001 ***
+#   ASV_124   0.852   0.001 ***
+#   ASV_390   0.852   0.001 ***
+#   ASV_45    0.851   0.001 ***
+#   ASV_241   0.843   0.001 ***
+#   ASV_641   0.839   0.001 ***
+#   ASV_278   0.838   0.001 ***
+#   ASV_528   0.836   0.001 ***
+#   ASV_173   0.834   0.001 ***
+#   ASV_57    0.833   0.001 ***
+#   ASV_26    0.832   0.001 ***
+#   ASV_69    0.830   0.001 ***
+#   ASV_66    0.822   0.001 ***
+#   ASV_496   0.820   0.001 ***
+#   ASV_112   0.818   0.001 ***
+#   ASV_600   0.812   0.001 ***
+#   ASV_137   0.812   0.001 ***
+#   ASV_117   0.811   0.001 ***
+#   ASV_109   0.809   0.001 ***
+#   ASV_237   0.807   0.001 ***
+#   ASV_359   0.804   0.001 ***
+#   ASV_251   0.801   0.001 ***
+
+set.seed(1223) # For reproducability
+mp2 <- multipatt(t(input_gut_colorado$data_loaded), 
+                input_gut_colorado$map_loaded$Human_Impact, 
+                func = "IndVal.g", 
+                control = how(nperm=999))
+summary(mp2)
+
+# 828 species specific to high human impact, ~150 for low and medium
+
+set.seed(1223) # For reproducability
+mp <- multipatt(t(input_gut_colorado$data_loaded), 
+                input_gut_colorado$map_loaded$Habitat_Type, 
+                func = "IndVal.g", 
+                control = how(nperm=999))
+summarymp <- summary(mp)
+head(summary(mp))
+
+# 349 to grasslands, 114 to forests,
+
+mp2 <- multipatt(t(input_gut_colorado$data_loaded), 
+                input_gut_colorado$map_loaded$Habitat_Complexity_Qual, 
+                func = "IndVal.g", 
+                control = how(nperm=999))
+summary(mp2)
+
+
+# MAP FIGURE TEST ####
+
+install.packages("tmap")
+library(ggmap)
+library(geosphere)
+library(leaflet)
+library(sf)
+library(tmap)
+
+contig_us <- ggplot2::map_data("state")
+head(contig_us)
+
+ggplot(contig_us) + 
+  geom_polygon(aes(x = long, y = lat, group = group), 
+               color = "black") +
+  theme_minimal() + 
+  theme(axis.ticks = element_blank(), 
+        axis.text = element_blank())+
+  xlab('') + ylab('') -> us_map
+
+us_map
+
+# get just Colorado
+states <- map_data("state")
+co_df <- subset(states, region == "colorado")
+
+# Get CO counties
+counties <- map_data("county")
+co_county <- subset(counties, region == "colorado")
+
+# plot the state
+
+co_base <- ggplot(data = co_df, mapping = aes(x = long, y = lat, group = group)) + 
+  coord_fixed(1.3) + 
+  geom_polygon(color = "black", fill = "gray")
+co_base + theme_nothing()
+
+# plot the county boundaries in white
+
+co_base + theme_nothing() + 
+  geom_polygon(data = co_county, fill = NA, color = "white") +
+  geom_polygon(color = "black", fill = NA)  # get the state border back on top
+
+cobox <- make_bbox(lon = input_no_blanks_no_babies$map_loaded$Est_Long, lat = input_no_blanks_no_babies$map_loaded$Est_Lat, f = .3)
+cobox
+
+co_map <- get_map(location = cobox, maptype = "satellite", source = "google")
+ggmap(co_map)
+
+ggmap(co_map) + 
+  geom_point(data = input_no_blanks_no_babies$map_loaded, mapping = aes(x = Est_Long, y = Est_Lat, color = Year), size = 3.5) +
+  labs(x ="Longitude", y = "Latitude") +
+  theme(axis.title.x = element_text(size=14, face="bold"),
+        axis.title.y = element_text(size=14, face="bold"),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+#plot the country
+usa_base <- ggplot(data = contig_us, mapping = aes(x = long, y = lat, group = group)) + 
+  coord_fixed(1.3) + 
+  geom_polygon(color = "black", fill = "gray")
+usa_base + theme_nothing()
+
+institutionPal <- c("#b44c54", "#565A5C", "#0021A5")
+
+input_gut$map_loaded$Institution <- factor(input_gut$map_loaded$Institution)
+
+# create a leaflet map object
+map <- leaflet() %>%
+  addTiles() %>%
+  addCircleMarkers(data = input_gut$map_loaded, lat = ~Lat, lng = ~Long,
+             color = ~institutionPal[as.numeric(Institution)],
+             fillColor = ~institutionPal[as.numeric(Institution)],
+             radius = 5, fillOpacity = 1,
+             stroke = FALSE)
+
+htmlwidgets::saveWidget(map, file = "leaflet_map.html")
+
+
+# show/save the map
+png(filename = "InstitutionMap.png",
+    units = "in",
+    width = 8,
+    height = 6,
+    res = 1200)
+map
+dev.off()
+
+# Can't use ggmap under public domain
+### make collection map
+# usabox <- make_bbox(lon = input_gut$map_loaded$Long, lat = input_gut$map_loaded$Lat, f = .3)
+# usabox
+# 
+# usa_map <- get_map(location = usabox, maptype = "satellite", source = "google")
+# ggmap(usa_map)
+# 
+# institutionPal <- c("#b44c54", "#565A5C", "#0021A5")
+# 
+# ggmap(usa_map) + 
+#   geom_point(data = input_gut$map_loaded, mapping = aes(x = Long, y = Lat, color = Institution), size = 4) +
+#   labs(x ="Longitude", y = "Latitude") + 
+#   scale_color_manual(values = institutionPal) + 
+#   theme(axis.title.x = element_text(size=14, face="bold"),
+#         axis.title.y = element_text(size=14, face="bold"),
+#         legend.title = element_text(size=14, face="bold"),
+#         legend.text = element_text(size=14))
+
+
+library(dplyr)
+# install.packages("ggmap")
+library(ggmap)
+library(geosphere)
+
+# get just Colorado
+states <- map_data("state")
+co_df <- subset(states, region == "colorado")
+
+# Get CO counties
+counties <- map_data("county")
+co_county <- subset(counties, region == "colorado")
+
+# plot the state
+
+co_base <- ggplot(data = co_df, mapping = aes(x = long, y = lat, group = group)) + 
+  coord_fixed(1.3) + 
+  geom_polygon(color = "black", fill = "gray")
+co_base + theme_nothing()
+
+# plot the county boundaries in white
+
+co_map <- co_base + theme_nothing() + 
+  geom_polygon(data = co_county, fill = NA, color = "white") +
+  geom_polygon(color = "black", fill = NA)  # get the state border back on top
+
+cobox <- make_bbox(lon = input_gut_colorado$map_loaded$Long, lat = input_gut_colorado$map_loaded$Lat, f = .3)
+cobox
+
+co_map <- get_map(location = cobox, maptype = "hybrid", source = "google")
+ggmap(co_map)
+
+ggmap(co_map) + 
+  geom_point(data = input_gut_colorado$map_loaded, mapping = aes(x = Long, y = Lat, color = Location), size = 6) +
+  labs(x ="Longitude", y = "Latitude") +
+  scale_color_manual(values = Different_Colors_Pal) +
+  scale_fill_manual(values = Different_Colors_Pal) +
+  theme(axis.title.x = element_text(size=14, face="bold"),
+        axis.title.y = element_text(size=14, face="bold"),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
+
+map <- usmap::plot_usmap("counties", fill = "green", alpha = 0.25,
+                  include = c("CO"))
+map +
+  labs(x ="Longitude", y = "Latitude") +
+  theme(axis.title.x = element_text(size=14, face="bold"),
+        axis.title.y = element_text(size=14, face="bold"),
+        legend.title = element_text(size=14, face="bold"),
+        legend.text = element_text(size=14))
